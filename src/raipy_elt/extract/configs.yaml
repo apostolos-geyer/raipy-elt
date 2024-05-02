@@ -7,23 +7,23 @@ raw:
       - Resident ID
       - Unit
       - Assessment ID
-      - Assessment Type: category
-      - question_key: category
+      - Assessment Type
+      - question_key
       - item_value
       - Answer
     dates:
       - ARD: '%Y-%m-%d %H:%M:%S'
       - Answer_Date: '%Y-%m-%d %H:%M:%S'
-    
+
   scoring:
     glob: "*AssessmentScoringExtract*.csv"
-    columns: 
+    columns:
       - Facility ID
       - Resident ID
       - Unit
       - Assessment ID
-      - RAI-MDS Status: category
-      - Rug Group: category
+      - RAI-MDS Status
+      - Rug Group
       - CMI: Float32
       - CPS: Float32
       - DRS: Float32
@@ -38,7 +38,7 @@ raw:
       - PSI: Float32
       - PURS: Float32
       - FRS: Float32
-    dates: 
+    dates:
       - ARD: '%Y-%m-%d %H:%M:%S'
       - Assessment Locked Date: '%Y-%m-%d %H:%M:%S'
       - Date Assessment Created: '%Y-%m-%d %H:%M:%S'
@@ -64,9 +64,9 @@ raw:
 #       - Answer_Date: '%Y-%m-%d %H:%M:%S'
 #       - FILE_DATE: '%Y-%m-%d'
 #       - INGESTION_TIMESTAMP: '%Y-%m-%d %H:%M:%S'
-    
+
 #   scoring:
-#     columns: 
+#     columns:
 #       - Facility ID
 #       - Resident ID
 #       - Unit
@@ -90,22 +90,22 @@ raw:
 #       - FILE_NAME: category
 #       - INSTANCE: category
 #       - PROVINCE: category
-#     dates: 
+#     dates:
 #       - ARD: '%Y-%m-%d %H:%M:%S'
 #       - Assessment Locked Date: '%Y-%m-%d %H:%M:%S'
 #       - Date Assessment Created: '%Y-%m-%d %H:%M:%S'
-#       - Date Assessment Revised: '%Y-%m-%d %H:%M:%S' 
+#       - Date Assessment Revised: '%Y-%m-%d %H:%M:%S'
 #       - FILE_DATE: '%Y-%m-%d'
 #       - INGESTION_TIMESTAMP: '%Y-%m-%d %H:%M:%S'
 
 
-# silver_raw: 
+# silver_raw:
 #   questions:
 #     columns:
 #       - facility_id
 #       - resident_id
 #       - unit
-#       - assessment_id 
+#       - assessment_id
 #       - assessment_type: category
 #       - question_key: category
 #       - item_value
@@ -118,13 +118,13 @@ raw:
 #       - answer_date: '%Y-%m-%d %H:%M:%S'
 #       - FILE_DATE: '%Y-%m-%d'
 #       - INGESTION_TIMESTAMP: '%Y-%m-%d %H:%M:%S'
-    
+
 #   scoring:
 #     columns:
 #       - facility_id
 #       - resident_id
 #       - unit
-#       - assessment_id 
+#       - assessment_id
 #       - rai-mds_status: category
 #       - rug_group: category
 #       - cmi: Float32
@@ -144,7 +144,7 @@ raw:
 #       - FILE_NAME: category
 #       - INSTANCE: category
 #       - PROVINCE: category
-#     dates: 
+#     dates:
 #       - ard: '%Y-%m-%d %H:%M:%S'
 #       - assessment_locked_date: '%Y-%m-%d %H:%M:%S'
 #       - date_assessment_created: '%Y-%m-%d %H:%M:%S'
@@ -156,30 +156,30 @@ raw:
 # # <class 'pandas.core.frame.DataFrame'>
 # # Index: 39813178 entries, 0 to 39813177
 # # Data columns (total 22 columns):
-# #  #   Column                Dtype         
-# # ---  ------                -----         
-# #  0   Facility ID           object        
-# #  1   Resident ID           object        
-# #  2   Unit                  object        
-# #  3   Assessment ID         object        
-# #  4   Assessment Type       category      
+# #  #   Column                Dtype
+# # ---  ------                -----
+# #  0   Facility ID           object
+# #  1   Resident ID           object
+# #  2   Unit                  object
+# #  3   Assessment ID         object
+# #  4   Assessment Type       category
 # #  5   Answer_Date           datetime64[ns]
 # #  6   ARD                   datetime64[ns]
-# #  7   question_key          object        
-# #  8   item_value            object        
-# #  9   Answer                object        
-# #  10  filename              object        
-# #  11  instance              object        
+# #  7   question_key          object
+# #  8   item_value            object
+# #  9   Answer                object
+# #  10  filename              object
+# #  11  instance              object
 # #  12  file_date             datetime64[ns]
 # #  13  ingestion_timestamp   datetime64[ns]
-# #  14  Unique Assessment ID  object        
-# #  15  Unique Resident ID    object        
-# #  16  Facility Name         object        
-# #  17  Province              object        
-# #  18  Section               object        
-# #  19  Question              object        
-# #  20  Key:Question          object        
-# #  21  _merge                category      
+# #  14  Unique Assessment ID  object
+# #  15  Unique Resident ID    object
+# #  16  Facility Name         object
+# #  17  Province              object
+# #  18  Section               object
+# #  19  Question              object
+# #  20  Key:Question          object
+# #  21  _merge                category
 # # dtypes: category(2), datetime64[ns](4), object(16)
 # # memory usage: 6.3+ GB
 
@@ -191,7 +191,7 @@ raw:
 
 
 # # ---
-# # common: 
+# # common:
 # # # configurations shared across tables
 # #   pandas: &common_pandas
 # #       dtype: &common_dtype
@@ -240,11 +240,8 @@ raw:
 #       # PSI: Float32
 #       # PURS: Float32
 #       # FRS: Float32
-# #     dates: 
+# #     dates:
 # #       <<: *common_dates
 #       # Assessment Locked Date: '%Y-%m-%d %H:%M:%S'
 #       # Date Assessment Created: '%Y-%m-%d %H:%M:%S'
 #       # Date Assessment Revised: '%Y-%m-%d %H:%M:%S'
-
-  
-
