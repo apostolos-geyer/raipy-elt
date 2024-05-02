@@ -1,0 +1,28 @@
+[tool.poetry]
+name = "raipy-elt"
+version = "0.0.1"
+description = ""
+authors = ["apostoli <79337131+apostolos-geyer@users.noreply.github.com>"]
+readme = "README.md"
+packages = [
+    { include = "raipy_elt", from = "src" },
+]
+
+[tool.poetry.scripts]
+raw2bronze = "raipy_elt.__main__:raw_to_bronze"
+
+[tool.poetry.dependencies]
+python = "^3.10"
+attrs = "^23.2.0"
+pandas = {extras = ["performance"], version = "^2.2.2"}
+duckdb = "^0.10.2"
+pyyaml = "^6.0.1"
+deltalake = "^0.17.2"
+
+
+[tool.poetry.group.dev.dependencies]
+ipykernel = "^6.29.4"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
