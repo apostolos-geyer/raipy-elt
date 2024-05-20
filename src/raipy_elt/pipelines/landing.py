@@ -12,6 +12,7 @@ from raipy_elt.pipelines.pipeline import (
     ResultMapping,
 )
 from raipy_elt.pipelines.records import FileMetadata, IngestionRecord, ReadMetadata
+from raipy_elt.data_quality.checks import check_column_value_sets, ColumnDomainRelationship
 from raipy_elt.utilities.dataframe import (
     enforce_datetime64us,
     manual_parse,
@@ -68,7 +69,7 @@ Scoring:
       - Date Assessment Revised: '%Y-%m-%d %H:%M:%S'
 """
 
-GLOB_CSV = "*.csv"
+GLOB_ASSESSMENT = "*MDSAssessment*.csv"
 
 LOGGER = logging.getLogger(__name__)
 
@@ -281,7 +282,7 @@ _RawToBronze = Pipeline.define(
         "file_metadata_filters",
         "mode",
     },
-    file_glob=GLOB_CSV,
+    file_glob=GLOB_ASSESSMENT,
     file_metadata_filters=lambda x: True,
     mode="append",
 )
@@ -344,7 +345,7 @@ def init(raw_dir: Path) -> None:
 )
 def detect_incoming(
     raw_dir: Path,
-    glob: str = GLOB_CSV,
+    glob: str = GLOB_ASSESSMENT,
     filters: list[FileFilter] | FileFilter | None = None,
 ) -> list[FileMetadata]:
     """
@@ -487,6 +488,10 @@ def ingest(
         ingestion_records.extend(
             [read_pair_result.questions.record, read_pair_result.scoring.record]
         )
+
+        check_res = check_column_value_sets('UNIQUE_ASSESSMENT_ID', read_pair_result.scoring.data, read_pair_result.questions.data)
+        if check_res.relationship is not ColumnDomainRelationship.EQUAL:
+            LOGGER.error(f"Unique Assessment ID sets are not equal between questions and scoring files. Relationship: {check_res.relationship}")
 
         if mode == "overwrite" and pair_no == 0:
             LOGGER.info(
