@@ -440,7 +440,7 @@ class Pipeline:
             self.logger.error(
                 f"An error occurred while running stage {stage_key}: {e}", exc_info=True
             )
-            return
+            raise ExitPipeline(f"An error occurred while running stage {stage_key}", error=True) from e
 
     def run(self):
         """
