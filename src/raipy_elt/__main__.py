@@ -16,13 +16,15 @@ def raw_to_bronze():
 
         print("i.e, call the script like this: DATA_DIR=/path/to/data raw2bronze")
         exit(1)
+    
+    from raipy_elt.pipelines.landing import RawToBronze
 
-    from raipy_elt.extract.configs import RAW, TABLES
-    from raipy_elt.extract.raw_to_bronze import gen_stages, run_stages
+    RawToBronze.set_parameters(
+        raw_dir = Path(data_dir) / "0-raw",
+        bronze_dir = Path(data_dir) / "1-bronze"
+    )
 
-    for table in TABLES[RAW]:
-        stages = gen_stages(table, Path(data_dir))
-        run_stages(stages)
+    RawToBronze.run()
 
 
 @click.group()
@@ -32,24 +34,16 @@ def raipy_elt():
 
 @raipy_elt.command()
 @click.option(
-    "--table",
-    "-t",
-    type=click.Choice(["questions", "scoring"]),
-    help="The table to extract",
-    required=True,
-)
-@click.option(
     "--data-dir",
     "-d",
     type=str,
     help="The directory containing the raw data",
     default=lambda: os.environ.get("DATA_DIR", None),
 )
-def ingest_raw(table: str, data_dir: os.PathLike | None):
+def ingest_raw(data_dir: os.PathLike | None):
     """
     Ingest raw data into the bronze layer
     """
-    from raipy_elt.extract.raw_to_bronze import gen_stages, run_stages
 
     if data_dir is None:
         data_dir = click.prompt(
@@ -57,9 +51,14 @@ def ingest_raw(table: str, data_dir: os.PathLike | None):
             "\nhint: you can set the DATA_DIR environment variable or pass -d /path/to/data_dir to avoid the prompt."
         )
 
-    stage_groups = gen_stages(table, Path(data_dir))
-    for stages in stage_groups:
-        run_stages(stages)
+    from raipy_elt.pipelines.landing import RawToBronze
+
+    RawToBronze.set_parameters(
+        raw_dir = Path(data_dir) / "0-raw",
+        bronze_dir = Path(data_dir) / "1-bronze"
+    )
+
+    RawToBronze.run()
 
 
 def main():
