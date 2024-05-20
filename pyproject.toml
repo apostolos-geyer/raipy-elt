@@ -13,7 +13,7 @@ raipy-elt = "raipy_elt.__main__:main"
 raw2bronze = "raipy_elt.__main__:raw_to_bronze"
 
 [tool.poetry.dependencies]
-python = "^3.12"
+python = "^3.11"
 attrs = "^23.2.0"
 pandas = {extras = ["performance"], version = "^2.2.2"}
 duckdb = "^0.10.2"
