@@ -1,8 +1,8 @@
-from pathlib import Path
 import logging
 import tarfile
-from typing import Optional, Sequence
 from enum import StrEnum
+from pathlib import Path
+from typing import Optional, Sequence
 
 from raipy_elt.utilities.misc import get_or_mkdir
 
@@ -63,7 +63,7 @@ def tarball_files(
 
     dest_dir = get_or_mkdir(dest_dir)
 
-    dest_pth = dest_dir / f"{dest_fname}.tar{"" if not cmprsn else cmprsn}"
+    dest_pth = dest_dir / f"{dest_fname}.tar{"" if not cmprsn else f'.{cmprsn}'}"
     md = f'w:{"" if not cmprsn else cmprsn}'
 
     debug(f"attempting to open file {dest_pth=} for writing in mode {md=}")
@@ -71,7 +71,10 @@ def tarball_files(
         info(f"tar file {dest_pth} opened")
         for file in src_files:
             try:
-                tar.add(file, recursive=retain_structure)
+                if retain_structure:
+                    tar.add(file)
+                else:
+                    tar.add(file, arcname=file.name)
                 debug(f"added {file=}.")
             except:
                 warning(f"an error occurred adding {file=}", exc_info=True)
