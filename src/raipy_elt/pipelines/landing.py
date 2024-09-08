@@ -493,7 +493,13 @@ def ingest(
         if check_res.relationship is not ColumnDomainRelationship.EQUAL:
             LOGGER.error(f"Unique Assessment ID sets are not equal between questions and scoring files. Relationship: {check_res.relationship}")
 
-        if mode == "overwrite" and pair_no == 0:
+        # added empty check
+        q_empty = read_pair_result.questions.record.read_metadata.n_rows == 0
+        s_empty = read_pair_result.scoring.record.read_metadata.n_rows == 0
+        if q_empty and s_empty:
+                LOGGER.warning(f"no data present for the current files {questions_file_metadata.file_name} and {scoring_file_metadata.file_name}, files will be skipped.")
+                scoring_ingested = questions_ingested = False
+        elif mode == "overwrite" and pair_no == 0:
             LOGGER.info(
                 "Overwriting delta table for first pair of files. This will not delete the pre-existing data but mark it as 'deleted' in the transaction log."
             )
