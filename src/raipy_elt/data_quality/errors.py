@@ -9,19 +9,19 @@ from raipy_elt.data_quality.models import (
 )
 
 
-class EmptyDataframe(ValueError):
+class ColCheckOnEmptyDF(ValueError):
     result: ColumnDomainResult
 
     def __init__(self: Self, result: ColumnDomainResult) -> None:
         if DF_EMPTY not in result.rel:
             raise ValueError(
-                "invalid construction of EmptyDataframe exception. DF_EMPTY flag should be in column domain result"
+                "invalid construction of ColCheckOnEmptyDF exception. DF_EMPTY flag should be in column domain result"
             )
         elif not any(
             cdr in result.rel for cdr in (LEFT_NOT_RIGHT, RIGHT_NOT_LEFT, BOTH)
         ):
             raise ValueError(
-                "invalid construction of EmptyDataframe exception. should have flag indicating which is empty (LEFT_NOT_RIGHT (right empty), RIGHT_NOT_LEFT (left empty), or BOTH)"
+                "invalid construction of ColCheckOnEmptyDF exception. should have flag indicating which is empty (LEFT_NOT_RIGHT (right empty), RIGHT_NOT_LEFT (left empty), or BOTH)"
             )
 
         self.result = result
@@ -39,19 +39,19 @@ class EmptyDataframe(ValueError):
         return tmpl.format(why=why)
 
 
-class MissingColumn(KeyError):
+class ColCheckOnMissingCol(KeyError):
     result: ColumnDomainResult
 
     def __init__(self: Self, result: ColumnDomainResult) -> None:
         if COL_MISSING not in result.rel:
             raise ValueError(
-                "invalid construction of MissingColumn exception. COL_MISSING flag should be in column domain result"
+                "invalid construction of ColCheckOnMissingCol exception. COL_MISSING flag should be in column domain result"
             )
         elif not any(
             cdr in result.rel for cdr in (LEFT_NOT_RIGHT, RIGHT_NOT_LEFT, BOTH)
         ):
             raise ValueError(
-                "invalid construction of MissingColumn exception. should have flag indicating which is missing (LEFT_NOT_RIGHT (missing in right), RIGHT_NOT_LEFT (missing in left), or BOTH)"
+                "invalid construction of ColCheckOnMissingCol exception. should have flag indicating which is missing (LEFT_NOT_RIGHT (missing in right), RIGHT_NOT_LEFT (missing in left), or BOTH)"
             )
 
         self.result = result
