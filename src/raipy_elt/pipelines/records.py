@@ -78,8 +78,8 @@ class ReadMetadata:
     n_residents: int
     n_facilities: int
     n_unique_assessments: int
-    errors: list[str] | None
-    success: bool
+    read_errors: list[str] | None
+    read_success: bool
 
     @classmethod
     def from_data(
@@ -91,8 +91,8 @@ class ReadMetadata:
                 n_residents=data["Resident ID"].nunique(),
                 n_unique_assessments=data.UNIQUE_ASSESSMENT_ID.nunique(),
                 n_facilities=data["Facility ID"].nunique(),
-                errors=errors or [],
-                success=True,
+                read_errors=errors or [],
+                read_success=True,
             )
             if data is not None
             else cls(
@@ -100,8 +100,8 @@ class ReadMetadata:
                 n_residents=-1,
                 n_unique_assessments=-1,
                 n_facilities=-1,
-                errors=errors or [],
-                success=False,
+                read_errors=errors or [],
+                read_success=False,
             )
         )
 
@@ -139,12 +139,16 @@ class ReadMetadata:
 class IngestionRecord:
     file_metadata: FileMetadata
     read_metadata: ReadMetadata
+    ingest_errors: list[str]
+    ingest_success: bool
     processed_timestamp: pd.Timestamp = field(factory=pd.Timestamp.now)
 
     def get_mapping(self) -> dict:
         return {
             **self.file_metadata.get_mapping(),
             **self.read_metadata.get_mapping(),
+            "INGEST_ERRORS": self.ingest_errors,
+            "INGEST_SUCCESS": self.ingest_success,
             "PROCESSED_TIMESTAMP": self.processed_timestamp,
         }
 
