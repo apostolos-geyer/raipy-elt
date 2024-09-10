@@ -240,20 +240,19 @@ def _read_pair(
     q_df, q_read_metadata = _try_read(questions_file_metadata, raw_dir)
     s_df, s_read_metadata = _try_read(scoring_file_metadata, raw_dir)
 
-    dq_errs: list[str] = []
-    dq_success: bool = True
+    errs: list[str] = []
+    succ: bool = True
 
     try:
         check = dq_checks.check_column_value_sets(  # might raise a dq_errors error
             "UNIQUE_ASSESSMENT_ID", q_df, s_df
         )
         if check.rel is not dq_models.ColumnDomainRelationship.EQUAL:
-            dq_success = False
-            msg = f"Unique Assessment ID sets not equal between {left} and {right}. Relationship: {check.rel}. Will be skipped"
-            dq_errs.append(msg)
+            msg = f"Unique Assessment ID sets not equal between {left} and {right}. Relationship: {check.rel}."
+            errs.append(msg)
             LOGGER.error(msg)
     except Exception as err:
-        dq_success = False
+        succ = False
         msg = ""
         match err:  # handle aforementioned dq_errors err here
             case dq_errors.ColCheckOnMissingCol() as ccm:
@@ -278,22 +277,22 @@ def _read_pair(
                 msg = (
                     f"An unexpected exception occurred while validating {left} and {right}",
                 )
-        dq_errs.append(f"{err} [{msg}]")
+        errs.append(f"{err} [{msg}]")
 
         LOGGER.exception(f"{msg}. Files will be skipped.")
 
     q_ingestion_record = IngestionRecord(
         file_metadata=questions_file_metadata,
         read_metadata=q_read_metadata,
-        ingest_errors=dq_errs,
-        ingest_success=dq_success,
+        ingest_errors=errs,
+        ingest_success=succ,
         processed_timestamp=pd.Timestamp.now(),
     )
     s_ingestion_record = IngestionRecord(
         file_metadata=scoring_file_metadata,
         read_metadata=s_read_metadata,
-        ingest_errors=dq_errs,
-        ingest_success=dq_success,
+        ingest_errors=errs,
+        ingest_success=succ,
         processed_timestamp=pd.Timestamp.now(),
     )
 
