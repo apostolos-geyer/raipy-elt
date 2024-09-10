@@ -232,17 +232,67 @@ def _read_pair(
     """
     Read a pair of files (a questions file and scoring file) and return the results as a named tuple
     """
+    qfname, sfname = questions_file_metadata.file_name, scoring_file_metadata.file_name
+    left, right = (
+        f"left dataframe (questions file {qfname})",
+        f"right dataframe (scoring file {sfname})",
+    )
     q_df, q_read_metadata = _try_read(questions_file_metadata, raw_dir)
     s_df, s_read_metadata = _try_read(scoring_file_metadata, raw_dir)
+
+    errs: list[str] = []
+    succ: bool = True
+
+    try:
+        check = dq_checks.check_column_value_sets(  # might raise a dq_errors error
+            "UNIQUE_ASSESSMENT_ID", q_df, s_df
+        )
+        if check.rel is not dq_models.ColumnDomainRelationship.EQUAL:
+            msg = f"Unique Assessment ID sets not equal between {left} and {right}. Relationship: {check.rel}."
+            errs.append(msg)
+            LOGGER.error(msg)
+    except Exception as err:
+        succ = False
+        msg = ""
+        match err:  # handle aforementioned dq_errors err here
+            case dq_errors.ColCheckOnMissingCol() as ccm:
+                res = ccm.result
+                rel = res.rel
+                if dq_models.LEFT_NOT_RIGHT in rel:
+                    msg = f"UNIQUE_ASSESSMENT_ID missing from {right}"
+                elif dq_models.RIGHT_NOT_LEFT in rel:
+                    msg = f"UNIQUE_ASSESSMENT_ID missing from {left}"
+                elif dq_models.BOTH in rel:
+                    msg = f"UNIQUE_ASSESSMENT_ID is missing {left} and {right}"
+            case dq_errors.ColCheckOnEmptyDF() as cce:
+                res = cce.result
+                rel = res.rel
+                if dq_models.LEFT_NOT_RIGHT in rel:
+                    msg = f"{left} has values and {right} doesnt"
+                elif dq_models.RIGHT_NOT_LEFT in rel:
+                    msg = f"{right} has valeus and {left} doesnt"
+                elif dq_models.BOTH in rel:
+                    msg = f"{left} and {right} are empty"
+            case _:
+                msg = (
+                    f"An unexpected exception occurred while validating {left} and {right}",
+                )
+        errs.append(f"{err} [{msg}]")
+
+        LOGGER.exception(f"{msg}. Files will be skipped.")
 
     q_ingestion_record = IngestionRecord(
         file_metadata=questions_file_metadata,
         read_metadata=q_read_metadata,
+        ingest_errors=errs,
+        ingest_success=succ,
         processed_timestamp=pd.Timestamp.now(),
     )
     s_ingestion_record = IngestionRecord(
         file_metadata=scoring_file_metadata,
         read_metadata=s_read_metadata,
+        ingest_errors=errs,
+        ingest_success=succ,
         processed_timestamp=pd.Timestamp.now(),
     )
 
@@ -256,12 +306,14 @@ def _write_to_delta_if_successful(
     ingested: _IngestionResult,
     bronze_dir: Path,
     mode: Literal["append", "overwrite"] = "append",
-) -> DeltaTable:
-    if not ingested.record.read_metadata.success:
+) -> DeltaTable | None:
+    if not (
+        ingested.record.read_metadata.read_success and ingested.record.ingest_success
+    ):
         LOGGER.error(
             f"{ingested.record.file_metadata.file_name} not successfully read, skipping"
         )
-        return
+        return None
 
     data = ingested.data
     data.FILE_DATE = pd.to_datetime(ingested.data.FILE_DATE, format="%Y-%m-%d")
@@ -476,101 +528,109 @@ def ingest(
 
     questions, scoring = incoming_pairs
 
-    pair_no = 0
-    for questions_file_metadata, scoring_file_metadata in zip(questions, scoring):
+    for pair_no, (questions_file_metadata, scoring_file_metadata) in enumerate(
+        zip(questions, scoring)
+    ):
         LOGGER.info(
             f"Processing files: {questions_file_metadata.file_name} and {scoring_file_metadata.file_name}"
         )
         read_pair_result = _read_pair(
             questions_file_metadata, scoring_file_metadata, raw_dir
         )
-        LOGGER.info(
-            f"Read Questions: {read_pair_result.questions.record.read_metadata}"
-        )
-        LOGGER.info(f"Read Scoring: {read_pair_result.scoring.record.read_metadata}")
+        LOGGER.info(f"Read Questions: {read_pair_result.questions.record}")
+        LOGGER.info(f"Read Scoring: {read_pair_result.scoring.record}")
 
-        ingestion_records.extend(
-            [read_pair_result.questions.record, read_pair_result.scoring.record]
-        )
+        qrecord = read_pair_result.questions.record
+        srecord = read_pair_result.scoring.record
 
-        should_write: bool = False
-        try:
-            check_res = (
-                dq_checks.check_column_value_sets(  # might raise a dq_errors error
-                    "UNIQUE_ASSESSMENT_ID",
-                    read_pair_result.scoring.data,
-                    read_pair_result.questions.data,
-                )
+        # should_write: bool = False
+        # try:
+        #     check_res = (
+        #         dq_checks.check_column_value_sets(  # might raise a dq_errors error
+        #             "UNIQUE_ASSESSMENT_ID",
+        #             read_pair_result.scoring.data,
+        #             read_pair_result.questions.data,
+        #         )
+        #     )
+
+        #     if check_res.rel is not dq_models.ColumnDomainRelationship.EQUAL:
+        #         LOGGER.error(
+        #             f"Unique Assessment ID sets are not equal between questions and scoring. Relationship: {check_res}. Will be skipped"
+        #         )
+        #     else:
+        #         should_write = True
+        # except Exception as err:
+        #     qfn = questions_file_metadata.file_name
+        #     sfn = scoring_file_metadata.file_name
+        #     msg = ""
+        #     match err:  # handle aforementioned dq_errors err here
+        #         case dq_errors.ColCheckOnMissingCol() as ccm:
+        #             res = ccm.result
+        #             rel = res.rel
+        #             if dq_models.LEFT_NOT_RIGHT in rel:
+        #                 msg = "UNIQUE_ASSESSMENT_ID missing from questions"
+        #             elif dq_models.RIGHT_NOT_LEFT in rel:
+        #                 msg = "UNIQUE_ASSESSMENT_ID missing from scoring"
+        #             elif dq_models.BOTH in rel:
+        #                 msg = "UNIQUE_ASSESSMENT_ID is missing"
+        #         case dq_errors.ColCheckOnEmptyDF() as cce:
+        #             res = cce.result
+        #             rel = res.rel
+        #             if dq_models.LEFT_NOT_RIGHT in rel:
+        #                 msg = (
+        #                     f"Questions file {qfn} is empty. Scoring file {sfn} is not."
+        #                 )
+        #             elif dq_models.RIGHT_NOT_LEFT in rel:
+        #                 msg = (
+        #                     f"Scoring file {sfn} is empty. Questions file {qfn} is not."
+        #                 )
+        #             elif dq_models.BOTH in rel:
+        #                 msg = f"Both questions ({qfn}) and scoring ({sfn}) are empty."
+        #         case _:
+        #             msg = (
+        #                 f"An unexpected exception occurred while validating files {qfn} and {sfn}",
+        #             )
+
+        #     LOGGER.exception(f"{msg}. Files will be skipped.")
+
+        if mode == "overwrite" and pair_no == 0:
+            LOGGER.info(
+                "Overwriting delta table for first pair of files. This will not delete the pre-existing data but mark it as 'deleted' in the transaction log."
             )
 
-            if check_res.rel is not dq_models.ColumnDomainRelationship.EQUAL:
-                LOGGER.error(
-                    f"Unique Assessment ID sets are not equal between questions and scoring. Relationship: {check_res}. Will be skipped"
-                )
-            else:
-                should_write = True
-        except Exception as err:
-            qfn = questions_file_metadata.file_name
-            sfn = scoring_file_metadata.file_name
-            msg = ""
-            match err:  # handle aforementioned dq_errors err here
-                case dq_errors.ColCheckOnMissingCol() as ccm:
-                    res = ccm.result
-                    rel = res.rel
-                    if dq_models.LEFT_NOT_RIGHT in rel:
-                        msg = "UNIQUE_ASSESSMENT_ID missing from questions"
-                    elif dq_models.RIGHT_NOT_LEFT in rel:
-                        msg = "UNIQUE_ASSESSMENT_ID missing from scoring"
-                    elif dq_models.BOTH in rel:
-                        msg = "UNIQUE_ASSESSMENT_ID is missing"
-                case dq_errors.ColCheckOnEmptyDF() as cce:
-                    res = cce.result
-                    rel = res.rel
-                    if dq_models.LEFT_NOT_RIGHT in rel:
-                        msg = (
-                            f"Questions file {qfn} is empty. Scoring file {sfn} is not."
-                        )
-                    elif dq_models.RIGHT_NOT_LEFT in rel:
-                        msg = (
-                            f"Scoring file {sfn} is empty. Questions file {qfn} is not."
-                        )
-                    elif dq_models.BOTH in rel:
-                        msg = f"Both questions ({qfn}) and scoring ({sfn}) are empty."
-                case _:
-                    msg = (
-                        f"An unexpected exception occurred while validating files {qfn} and {sfn}",
-                    )
-
-            LOGGER.exception(f"{msg}. Files will be skipped.")
-
-        if should_write:
-            if mode == "overwrite" and pair_no == 0:
-                LOGGER.info(
-                    "Overwriting delta table for first pair of files. This will not delete the pre-existing data but mark it as 'deleted' in the transaction log."
-                )
-
-                questions_ingested = _write_to_delta_if_successful(
-                    read_pair_result.questions, bronze_dir, mode="overwrite"
-                )
-                scoring_ingested = _write_to_delta_if_successful(
+            questions_ingested_to = _write_to_delta_if_successful(
+                read_pair_result.questions, bronze_dir, mode="overwrite"
+            )
+            scoring_ingested_to = (
+                None
+                if not questions_ingested_to
+                else _write_to_delta_if_successful(
                     read_pair_result.scoring, bronze_dir, mode="overwrite"
                 )
-            else:
-                questions_ingested = _write_to_delta_if_successful(
-                    read_pair_result.questions, bronze_dir
-                )
-                scoring_ingested = _write_to_delta_if_successful(
-                    read_pair_result.scoring, bronze_dir
-                )
+            )
+        else:
+            questions_ingested_to = _write_to_delta_if_successful(
+                read_pair_result.questions, bronze_dir
+            )
+            scoring_ingested_to = (
+                None
+                if not questions_ingested_to
+                else _write_to_delta_if_successful(read_pair_result.scoring, bronze_dir)
+            )
 
-            if questions_ingested and scoring_ingested:
-                LOGGER.info(
-                    f"Successfully ingested {questions_file_metadata.file_name} and {scoring_file_metadata.file_name}"
-                )
-            else:
-                LOGGER.error(
-                    f"Failed to ingest {questions_file_metadata.file_name} and {scoring_file_metadata.file_name}"
-                )
+        qrecord.ingest_success = questions_ingested_to is not None
+        srecord.ingest_success = scoring_ingested_to is not None
+
+        if questions_ingested_to and scoring_ingested_to:
+            LOGGER.info(
+                f"Successfully ingested {questions_file_metadata.file_name} and {scoring_file_metadata.file_name}"
+            )
+        else:
+            LOGGER.error(
+                f"Failed to ingest {questions_file_metadata.file_name} and {scoring_file_metadata.file_name}"
+            )
+
+        ingestion_records.extend((qrecord, srecord))
 
     return pd.DataFrame([record.get_mapping() for record in ingestion_records])
 
