@@ -1,17 +1,17 @@
-import pytest
-from pytest import fixture
-from pytest import mark
 import pandas as pd
+import pytest
+from pytest import fixture, mark
+
 from raipy_elt.data_quality.checks import check_column_value_sets
 from raipy_elt.data_quality.errors import ColCheckOnEmptyDF, ColCheckOnMissingCol
 from raipy_elt.data_quality.models import (
-    ColumnDomainResult,
+    BOTH,
+    COL_MISSING,
+    DF_EMPTY,
+    EQUAL,
     LEFT_NOT_RIGHT,
     RIGHT_NOT_LEFT,
-    BOTH,
-    EQUAL,
-    DF_EMPTY,
-    COL_MISSING,
+    ColumnDomainResult,
 )
 
 
@@ -48,11 +48,11 @@ def df_empty():
     [
         ("df_123_abc_short", "df_123_abc_short"),
         ("df_123_abc_long", "df_123_abc_short"),
-        ("df_123_abc_short", "df_abc_123_long"),
+        ("df_123_abc_short", "df_123_abc_long"),
         ("df_123_abc_long", "df_123_abc_long"),
     ],
 )
-def test_equal_columns(l, r, request):
+def test_equal_columns(l, r, request):  # noqa: E741
     ldf = request.getfixturevalue(l)
     rdf = request.getfixturevalue(r)
 
@@ -75,26 +75,30 @@ def test_equal_columns(l, r, request):
 @mark.parametrize(
     "l,r", [("df_1234_abc", "df_123_abc_short"), ("df_1234_abc", "df_123_abc_long")]
 )
-def test_left_not_right(l, r, request):
+def test_left_not_right(l, r, request):  # noqa: E741
     ldf = request.getfixturevalue(l)
     rdf = request.getfixturevalue(r)
     result = check_column_value_sets("col1", ldf, rdf)
     assert isinstance(result, ColumnDomainResult)
     assert result.rel == LEFT_NOT_RIGHT
-    assert result.lnotr == pd.Series([4])  # Value 1 is in left but not in right
+    assert (
+        result.lnotr.tolist() == pd.Series([4]).tolist()  # type: ignore
+    )  # Value 1 is in left but not in right
 
 
 ### Tests for RIGHT_NOT_LEFT Relationship
 @mark.parametrize(
     "l,r", [("df_123_abc_short", "df_1234_abc"), ("df_123_abc_long", "df_1234_abc")]
 )
-def test_right_not_left(l, r, request):
+def test_right_not_left(l, r, request):  # noqa: E741
     ldf = request.getfixturevalue(l)
     rdf = request.getfixturevalue(r)
     result = check_column_value_sets("col1", ldf, rdf)
     assert isinstance(result, ColumnDomainResult)
     assert result.rel == RIGHT_NOT_LEFT
-    assert result.rnotl == pd.Series([4])  # Value 4 is in right but not in left
+    assert (
+        result.rnotl.tolist() == pd.Series([4]).tolist()  # type: ignore
+    )  # Value 4 is in right but not in left
 
 
 ### Tests for BOTH Relationship
@@ -106,10 +110,10 @@ def test_both_columns(df_1234_abc, df_235_abd):
 
     assert c1res.rel == BOTH
     assert c2res.rel == BOTH
-    assert c1res.lnotr == pd.Series([1, 4])
-    assert c1res.rnotl == pd.Series([5])
-    assert c2res.lnotr == pd.Series(["c"])
-    assert c2res.rnotl == pd.Series(["d"])
+    assert c1res.lnotr.tolist() == pd.Series([1, 4]).tolist()  # type: ignore
+    assert c1res.rnotl.tolist() == pd.Series([5]).tolist()  # type: ignore
+    assert c2res.lnotr.tolist() == pd.Series(["c"]).tolist()  # type: ignore
+    assert c2res.rnotl.tolist() == pd.Series(["d"]).tolist()  # type: ignore
 
 
 ### Tests for Empty DataFrames
