@@ -65,7 +65,7 @@ def check_column_value_sets(
                 )  # right has values and left doesnt
             case (False, True):
                 res = ColumnDomainResult.left_not_right(flag=DF_EMPTY)  # vice versa
-        raise errors.EmptyDataframe(result=res)  # type: ignore (one of the above cases is true by lempty or rempty)
+        raise errors.ColCheckOnEmptyDF(result=res)  # type: ignore (one of the above cases is true by lempty or rempty)
 
     if isinstance(cols, str):
         missing_l, missing_r = cols not in left.columns, cols not in right.columns
@@ -78,7 +78,7 @@ def check_column_value_sets(
                     res = ColumnDomainResult.right_not_left(cols, COL_MISSING)
                 case (False, True):
                     res = ColumnDomainResult.left_not_right(cols, COL_MISSING)
-            raise errors.MissingColumn(result=res)  # type: ignore (one of the above cases is true by missing_l or missing_r)
+            raise errors.ColCheckOnMissingCol(result=res)  # type: ignore (one of the above cases is true by missing_l or missing_r)
         return _check_column_value_sets(cols, left, right)
     elif isinstance(cols, tuple | list):
         missing_from_l, missing_from_r = (
@@ -92,7 +92,7 @@ def check_column_value_sets(
                     res = ColumnDomainResult.right_not_left(ml, COL_MISSING)
                 case [ml, mr]:
                     res = ColumnDomainResult.both(mr, ml, COL_MISSING)
-            raise errors.MissingColumn(result=res)
+            raise errors.ColCheckOnMissingCol(result=res)
         return {col: _check_column_value_sets(col, left, right) for col in cols}
 
 
