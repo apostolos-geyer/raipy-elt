@@ -116,7 +116,7 @@ class ReadMetadata:
                 "N_RESIDENTS": pd.Int64Dtype(),
                 "N_FACILITIES": pd.Int64Dtype(),
                 "N_UNIQUE_ASSESSMENTS": pd.Int64Dtype(),
-                "SUCCESS": bool,
+                "READ_SUCCESS": bool,
             }
         )
 
@@ -128,8 +128,8 @@ class ReadMetadata:
                 n_residents=row.N_RESIDENTS,
                 n_facilities=row.N_FACILITIES,
                 n_unique_assessments=row.N_UNIQUE_ASSESSMENTS,
-                errors=row.ERRORS,
-                success=row.SUCCESS,
+                read_errors=row.READ_ERRORS,
+                read_success=row.READ_SUCCESS,
             )
             for row in df.itertuples(index=False)
         ]
@@ -163,6 +163,6 @@ class IngestionRecord:
                 "INSTANCE": INSTANCE_DTYPE,
                 "PROVINCE": PROVINCE_DTYPE,
                 "EXTRACT_TYPE": EXTRACT_TYPE_DTYPE,
-                "SUCCESS": bool,
+                "INGEST_SUCCESS": bool,
             }
         )

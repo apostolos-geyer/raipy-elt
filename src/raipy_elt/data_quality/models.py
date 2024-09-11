@@ -1,5 +1,6 @@
+import sys
 from enum import Flag, auto
-from typing import Optional, Self
+from typing import Optional, Self, TypeAlias
 
 import pandas as pd
 from attrs import frozen
@@ -71,17 +72,18 @@ EQUAL, LEFT_NOT_RIGHT, RIGHT_NOT_LEFT, BOTH, DF_EMPTY, COL_MISSING = (
 )
 
 
+ValueDiff: TypeAlias = Optional[pd.Series | str | list[str]]
+ValueDiff.__doc__ = """
+value difference representation. use a pd.Series when representing
+difference between values in columns, a str or list[str] when representing column(s) not present,
+and None when rel is EQUAL or representing emptiness of dataframes
+"""
+
+
 @frozen
 class ColumnDomainResult:
     """
     NamedTuple for the result of the column domain check
-    """
-
-    type ValueDiff = Optional[pd.Series | str | list[str]]
-    """
-    value difference representation. use a pd.Series when representing
-    difference between values in columns, a str or list[str] when representing column(s) not present,
-    and None when rel is EQUAL or representing emptiness of dataframes
     """
 
     rel: ColumnDomainRelationship
