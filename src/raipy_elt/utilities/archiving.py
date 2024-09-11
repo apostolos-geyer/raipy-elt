@@ -87,12 +87,12 @@ def tarball_files(
     logger = logger or logging.getLogger(__file__)
     debug, info, warning = logger.debug, logger.info, logger.warning
 
-    debug(
+    info(
         f"tarball_files requested with parameters {src_files=}, {dest_dir=}, {dest_fname=}, {cmprsn=}, {retain_structure=}"
     )
 
     for file in src_files:
-        info(f"checking {file=} exists and is a file")
+        debug(f"checking {file=} exists and is a file")
         if not file.exists():
             warning("received a file that does not exist.")
             raise FileNotFoundError(
@@ -125,6 +125,10 @@ def tarball_files(
                 warning(f"an error occurred adding {file=}", exc_info=True)
                 raise
         info("all files added to tarball.")
+
+    for file in src_files:
+        info(f"removing {file=}")
+        file.unlink()  # remove files
 
     info("returning path to new tarball")
     return dest_pth
