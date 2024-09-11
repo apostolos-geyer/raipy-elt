@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "raipy-elt"
-version = "0.0.2"
+version = "0.0.3"
 description = ""
 authors = ["apostoli <79337131+apostolos-geyer@users.noreply.github.com>"]
 readme = "README.md"
