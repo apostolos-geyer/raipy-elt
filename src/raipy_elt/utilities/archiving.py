@@ -108,7 +108,7 @@ def tarball_files(
 
     dest_dir = get_or_mkdir(dest_dir)
 
-    dest_pth = dest_dir / f"{dest_fname}.tar{"" if not cmprsn else f'.{cmprsn}'}"
+    dest_pth = dest_dir / f"{dest_fname}.tar{'' if not cmprsn else f'.{cmprsn}'}"
     md = f'w:{"" if not cmprsn else cmprsn}'
 
     debug(f"attempting to open file {dest_pth=} for writing in mode {md=}")
