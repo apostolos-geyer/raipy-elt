@@ -440,12 +440,25 @@ class Pipeline:
             self.logger.error(
                 f"An error occurred while running stage {stage_key}: {e}", exc_info=True
             )
-            raise ExitPipeline(f"An error occurred while running stage {stage_key}", error=True) from e
+            raise ExitPipeline(
+                f"An error occurred while running stage {stage_key}", error=True
+            ) from e
 
-    def run(self):
+    def run(self, check_parameters: bool = False):
         """
         Runs the pipeline
+        :param check_parameters: check if all parameters are set. False to not break anything, but recommended to use True
+            so we don't run half the pipeline and then run into an error for a missing parameter.
         """
+        if check_parameters:
+            for param in self.parameter_set:
+                try:
+                    self.get_parameter(param, must=True)
+                except ValueError as v:
+                    raise ValueError(
+                        f"Attempt to run Pipeline with unset parameter {param}"
+                    ) from v
+
         for stage_key in self.stages:
             try:
                 self.logger.info(f"Running stage {stage_key}")
