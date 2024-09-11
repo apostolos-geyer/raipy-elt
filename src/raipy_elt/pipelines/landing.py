@@ -12,16 +12,22 @@ from raipy_elt.pipelines.pipeline import (
     ResultMapping,
 )
 from raipy_elt.pipelines.records import FileMetadata, IngestionRecord, ReadMetadata
-from raipy_elt.data_quality.checks import check_column_value_sets, ColumnDomainRelationship
+from raipy_elt.data_quality import (
+    checks as dq_checks,
+    errors as dq_errors,
+    models as dq_models,
+)
 from raipy_elt.utilities.dataframe import (
     enforce_datetime64us,
     manual_parse,
     unique_assessment_id,
+    list_col_nonempty,
 )
 from raipy_elt.utilities.delta import (
     DeltaTable,
     write_deltalake,
 )
+from raipy_elt.utilities.archiving import CompressAlg, move_files, tarball_files
 from raipy_elt.utilities.misc import flatten_dicts
 
 YAML_CONF = """\
@@ -228,17 +234,67 @@ def _read_pair(
     """
     Read a pair of files (a questions file and scoring file) and return the results as a named tuple
     """
+    qfname, sfname = questions_file_metadata.file_name, scoring_file_metadata.file_name
+    left, right = (
+        f"left dataframe (questions file {qfname})",
+        f"right dataframe (scoring file {sfname})",
+    )
     q_df, q_read_metadata = _try_read(questions_file_metadata, raw_dir)
     s_df, s_read_metadata = _try_read(scoring_file_metadata, raw_dir)
+
+    errs: list[str] = []
+    succ: bool = True
+
+    try:
+        check = dq_checks.check_column_value_sets(  # might raise a dq_errors error
+            "UNIQUE_ASSESSMENT_ID", q_df, s_df
+        )
+        if check.rel is not dq_models.ColumnDomainRelationship.EQUAL:
+            msg = f"Unique Assessment ID sets not equal between {left} and {right}. Relationship: {check.rel}."
+            errs.append(msg)
+            LOGGER.error(msg)
+    except Exception as err:
+        succ = False
+        msg = ""
+        match err:  # handle aforementioned dq_errors err here
+            case dq_errors.ColCheckOnMissingCol() as ccm:
+                res = ccm.result
+                rel = res.rel
+                if dq_models.LEFT_NOT_RIGHT in rel:
+                    msg = f"UNIQUE_ASSESSMENT_ID missing from {right}"
+                elif dq_models.RIGHT_NOT_LEFT in rel:
+                    msg = f"UNIQUE_ASSESSMENT_ID missing from {left}"
+                elif dq_models.BOTH in rel:
+                    msg = f"UNIQUE_ASSESSMENT_ID is missing {left} and {right}"
+            case dq_errors.ColCheckOnEmptyDF() as cce:
+                res = cce.result
+                rel = res.rel
+                if dq_models.LEFT_NOT_RIGHT in rel:
+                    msg = f"{left} has values and {right} doesnt"
+                elif dq_models.RIGHT_NOT_LEFT in rel:
+                    msg = f"{right} has valeus and {left} doesnt"
+                elif dq_models.BOTH in rel:
+                    msg = f"{left} and {right} are empty"
+            case _:
+                msg = (
+                    f"An unexpected exception occurred while validating {left} and {right}",
+                )
+        errs.append(f"{err} [{msg}]")
+
+        LOGGER.exception(f"{msg}. Files will be skipped.")
 
     q_ingestion_record = IngestionRecord(
         file_metadata=questions_file_metadata,
         read_metadata=q_read_metadata,
+        ingest_errors=errs,
+        ingest_success=succ,
         processed_timestamp=pd.Timestamp.now(),
     )
     s_ingestion_record = IngestionRecord(
         file_metadata=scoring_file_metadata,
         read_metadata=s_read_metadata,
+        ingest_errors=errs,
+        ingest_success=succ,
         processed_timestamp=pd.Timestamp.now(),
     )
 
@@ -252,12 +308,14 @@ def _write_to_delta_if_successful(
     ingested: _IngestionResult,
     bronze_dir: Path,
     mode: Literal["append", "overwrite"] = "append",
-) -> DeltaTable:
-    if not ingested.record.read_metadata.success:
+) -> DeltaTable | None:
+    if not (
+        ingested.record.read_metadata.read_success and ingested.record.ingest_success
+    ):
         LOGGER.error(
             f"{ingested.record.file_metadata.file_name} not successfully read, skipping"
         )
-        return
+        return None
 
     data = ingested.data
     data.FILE_DATE = pd.to_datetime(ingested.data.FILE_DATE, format="%Y-%m-%d")
@@ -281,10 +339,17 @@ _RawToBronze = Pipeline.define(
         "file_glob",
         "file_metadata_filters",
         "mode",
+        "archive_dir",
+        "archive_behaviour",
+        "archive_err_behaviour",
+        "archive_compress_alg",
     },
     file_glob=GLOB_ASSESSMENT,
     file_metadata_filters=lambda x: True,
     mode="append",
+    archive_behaviour=("tarball", "ingested"),
+    archive_err_behaviour=("move", "ingested-review"),
+    archive_compress_alg=CompressAlg.GZIP,
 )
 
 
@@ -299,10 +364,11 @@ def init(raw_dir: Path) -> None:
     Initialize the raw to bronze pipeline
     """
     _RawToBronze.logger.info("Initializing raw to bronze pipeline")
+    _RawToBronze.variables["TIMESTAMP"] = pd.Timestamp.now().strftime("%Y-%m-%d_%H-%M")
 
-    _RawToBronze.variables[
-        "RECORD_NAME"
-    ] = f"INGESTION_AT_{pd.Timestamp.now().strftime('%Y-%m-%d_%H-%M')}"
+    _RawToBronze.variables["RECORD_NAME"] = (
+        f"INGESTION_AT_{pd.Timestamp.now().strftime('%Y-%m-%d_%H-%M')}"
+    )
 
     _RawToBronze.logger.info("Attatching file handler to logger")
 
@@ -472,47 +538,100 @@ def ingest(
 
     questions, scoring = incoming_pairs
 
-    pair_no = 0
-    for questions_file_metadata, scoring_file_metadata in zip(questions, scoring):
+    for pair_no, (questions_file_metadata, scoring_file_metadata) in enumerate(
+        zip(questions, scoring)
+    ):
         LOGGER.info(
             f"Processing files: {questions_file_metadata.file_name} and {scoring_file_metadata.file_name}"
         )
         read_pair_result = _read_pair(
             questions_file_metadata, scoring_file_metadata, raw_dir
         )
-        LOGGER.info(
-            f"Read Questions: {read_pair_result.questions.record.read_metadata}"
-        )
-        LOGGER.info(f"Read Scoring: {read_pair_result.scoring.record.read_metadata}")
+        LOGGER.info(f"Read Questions: {read_pair_result.questions.record}")
+        LOGGER.info(f"Read Scoring: {read_pair_result.scoring.record}")
 
-        ingestion_records.extend(
-            [read_pair_result.questions.record, read_pair_result.scoring.record]
-        )
+        qrecord = read_pair_result.questions.record
+        srecord = read_pair_result.scoring.record
 
-        check_res = check_column_value_sets('UNIQUE_ASSESSMENT_ID', read_pair_result.scoring.data, read_pair_result.questions.data)
-        if check_res.relationship is not ColumnDomainRelationship.EQUAL:
-            LOGGER.error(f"Unique Assessment ID sets are not equal between questions and scoring files. Relationship: {check_res.relationship}")
+        # should_write: bool = False
+        # try:
+        #     check_res = (
+        #         dq_checks.check_column_value_sets(  # might raise a dq_errors error
+        #             "UNIQUE_ASSESSMENT_ID",
+        #             read_pair_result.scoring.data,
+        #             read_pair_result.questions.data,
+        #         )
+        #     )
+
+        #     if check_res.rel is not dq_models.ColumnDomainRelationship.EQUAL:
+        #         LOGGER.error(
+        #             f"Unique Assessment ID sets are not equal between questions and scoring. Relationship: {check_res}. Will be skipped"
+        #         )
+        #     else:
+        #         should_write = True
+        # except Exception as err:
+        #     qfn = questions_file_metadata.file_name
+        #     sfn = scoring_file_metadata.file_name
+        #     msg = ""
+        #     match err:  # handle aforementioned dq_errors err here
+        #         case dq_errors.ColCheckOnMissingCol() as ccm:
+        #             res = ccm.result
+        #             rel = res.rel
+        #             if dq_models.LEFT_NOT_RIGHT in rel:
+        #                 msg = "UNIQUE_ASSESSMENT_ID missing from questions"
+        #             elif dq_models.RIGHT_NOT_LEFT in rel:
+        #                 msg = "UNIQUE_ASSESSMENT_ID missing from scoring"
+        #             elif dq_models.BOTH in rel:
+        #                 msg = "UNIQUE_ASSESSMENT_ID is missing"
+        #         case dq_errors.ColCheckOnEmptyDF() as cce:
+        #             res = cce.result
+        #             rel = res.rel
+        #             if dq_models.LEFT_NOT_RIGHT in rel:
+        #                 msg = (
+        #                     f"Questions file {qfn} is empty. Scoring file {sfn} is not."
+        #                 )
+        #             elif dq_models.RIGHT_NOT_LEFT in rel:
+        #                 msg = (
+        #                     f"Scoring file {sfn} is empty. Questions file {qfn} is not."
+        #                 )
+        #             elif dq_models.BOTH in rel:
+        #                 msg = f"Both questions ({qfn}) and scoring ({sfn}) are empty."
+        #         case _:
+        #             msg = (
+        #                 f"An unexpected exception occurred while validating files {qfn} and {sfn}",
+        #             )
+
+        #     LOGGER.exception(f"{msg}. Files will be skipped.")
 
         if mode == "overwrite" and pair_no == 0:
             LOGGER.info(
                 "Overwriting delta table for first pair of files. This will not delete the pre-existing data but mark it as 'deleted' in the transaction log."
             )
 
-            questions_ingested = _write_to_delta_if_successful(
+            questions_ingested_to = _write_to_delta_if_successful(
                 read_pair_result.questions, bronze_dir, mode="overwrite"
             )
-            scoring_ingested = _write_to_delta_if_successful(
-                read_pair_result.scoring, bronze_dir, mode="overwrite"
+            scoring_ingested_to = (
+                None
+                if not questions_ingested_to
+                else _write_to_delta_if_successful(
+                    read_pair_result.scoring, bronze_dir, mode="overwrite"
+                )
             )
         else:
-            questions_ingested = _write_to_delta_if_successful(
+            questions_ingested_to = _write_to_delta_if_successful(
                 read_pair_result.questions, bronze_dir
             )
-            scoring_ingested = _write_to_delta_if_successful(
-                read_pair_result.scoring, bronze_dir
+            scoring_ingested_to = (
+                None
+                if not questions_ingested_to
+                else _write_to_delta_if_successful(read_pair_result.scoring, bronze_dir)
             )
 
-        if questions_ingested and scoring_ingested:
+        qrecord.ingest_success = questions_ingested_to is not None
+        srecord.ingest_success = scoring_ingested_to is not None
+
+        if questions_ingested_to and scoring_ingested_to:
             LOGGER.info(
                 f"Successfully ingested {questions_file_metadata.file_name} and {scoring_file_metadata.file_name}"
             )
@@ -520,6 +639,8 @@ def ingest(
             LOGGER.error(
                 f"Failed to ingest {questions_file_metadata.file_name} and {scoring_file_metadata.file_name}"
             )
+
+        ingestion_records.extend((qrecord, srecord))
 
     return pd.DataFrame([record.get_mapping() for record in ingestion_records])
 
@@ -550,6 +671,110 @@ def save_ingestion_records(ingestion_records: pd.DataFrame, raw_dir: Path) -> No
         raw_dir / f'{_RawToBronze.variables["RECORD_NAME"]}.csv',
         index=False,
     )
+
+
+@_RawToBronze.stage(
+    use_params=[
+        ParamMapping(from_param="archive_behaviour", as_arg="behaviour"),
+        ParamMapping(from_param="archive_err_behaviour", as_arg="err_behaviour"),
+        ParamMapping(from_param="raw_dir", as_arg="raw_dir"),
+        ParamMapping(from_param="archive_dir", as_arg="archive_dir"),
+        ParamMapping(from_param="archive_compress_alg", as_arg="alg"),
+    ],
+    use_outputs=[
+        ResultMapping(
+            from_stage="ingest",
+            as_arg="ingestion_records",
+        )
+    ],
+)
+def archive_raws(
+    behaviour: (None | tuple[Literal["move"], str] | tuple[Literal["tarball"], str]),
+    err_behaviour: (
+        None
+        | Literal["include"]
+        | tuple[Literal["move"], str]
+        | tuple[Literal["tarball"], str]
+    ),
+    raw_dir: Path,
+    archive_dir: Path,
+    alg: CompressAlg,
+    ingestion_records: pd.DataFrame,
+) -> None:
+    """
+    archive raws cleans up the ingested raw data according to the behaviours provided. files that failed to ingest (were not written to the delta)
+    will not be moved.
+
+    :param behaviour: how files that ingested cleanly (no read errors or ingest errors) should be handled.
+
+        - if None, no files will be moved.
+        - if a tuple ("move", str), files will be moved to a directory under the archive_dir named by the second element of the tuple, concatenated
+            with the current date and time.
+        - if a tuple ("tarball", str), files will be moved to a tarball under the archive_dir named by the second element of the tuple concatenated
+            with the current date and time, and suffixed with .tar.{suffix according to compression algorithm, either xz, gz, or bz2}
+
+    :param err_behaviour: how files that ingested with errors (i.e were still written to delta, but had issues) should be handled.
+
+        - if None, no files will be moved.
+        - if "include", they will be included with the files without errors
+        - if a tuple ("move", str), handled the same as above
+        - if a tuple ("tarball", str), handled the same as above
+
+    :param raw_dir: the path to the raw directory (to prepend to the file names from the ingestion_records)
+    :param archive_dir: the path in which the archives should be placed
+    :param alg: the compression algorithm
+    :param ingestion_records: dataframe of ingestion records indicating errors and if the file was saved to delta, must have columns READ_ERRORS, INGEST_ERRORS, INGEST_SUCCESS
+    """
+    if behaviour is None:
+        return
+
+    successes = ingestion_records[ingestion_records["INGEST_SUCCESS"]]
+    reidxs, ieidxs = (
+        list_col_nonempty(successes, ecol) for ecol in ("READ_ERRORS", "INGEST_ERRORS")
+    )
+    erridxs = reidxs | ieidxs
+
+    include_errs = isinstance(err_behaviour, str) and (err_behaviour == "include")
+    if include_errs:
+        fs = [raw_dir / fname for fname in successes["FILE_NAME"]]
+        match behaviour:
+            case ("move", str() as to_dir):
+                move_files(
+                    fs,
+                    dest_dir=archive_dir
+                    / f'{to_dir}{_RawToBronze.variables["TIMESTAMP"]}',
+                    logger=LOGGER,
+                )
+            case ("tarball", str() as to_arc):
+                tarball_files(
+                    fs,
+                    dest_dir=archive_dir,
+                    dest_fname=f'{to_arc}{_RawToBronze.variables["TIMESTAMP"]}',
+                    cmprsn=alg,
+                    logger=LOGGER,
+                )
+    else:
+        noerr_fs = [raw_dir / fname for fname in successes[~erridxs]["FILE_NAME"]]
+        err_fs = [
+            raw_dir / fname for fname in successes[erridxs]["FILE_NAME"]
+        ]  # dont include
+        for behave, fs in ((behaviour, noerr_fs), (err_behaviour, err_fs)):
+            match behave:
+                case ("move", str() as to_dir):
+                    move_files(
+                        fs,
+                        dest_dir=archive_dir
+                        / f'{to_dir}{_RawToBronze.variables["TIMESTAMP"]}',
+                        logger=LOGGER,
+                    )
+                case ("tarball", str() as to_arc):
+                    tarball_files(
+                        fs,
+                        dest_dir=archive_dir,
+                        dest_fname=f'{to_arc}{_RawToBronze.variables["TIMESTAMP"]}',
+                        cmprsn=alg,
+                        logger=LOGGER,
+                    )
 
 
 @_RawToBronze.stage("cleanup")
