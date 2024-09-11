@@ -20,6 +20,46 @@ class CompressAlg(StrEnum):
 GZIP, BZIP2, LZMA = CompressAlg
 
 
+def move_files(
+    src_files: Sequence[Path], dest_dir: Path, logger: Optional[logging.Logger] = None
+) -> Path:
+    """
+    receives a list (sequence) of files and a dest directory to move them to
+
+    :param src_files: list of files to move
+    :param dest_dir: directory to move them to
+    :param logger: logger used for logging messages in the function
+
+    :raises ValueError: if path to something other than a file is given
+    :raises FileNotFoundError: if path doesnt exist
+
+    :returns: dest_dir unaltered
+    """
+    logger = logger or logging.getLogger(__file__)
+    debug, info, warning = logger.debug, logger.info, logger.warning
+
+    debug(f"move_files requested with parameters {src_files=}, {dest_dir=}")
+
+    for file in src_files:
+        info(f"checking {file=} exists and is a file")
+        if not file.exists():
+            warning("received a file that does not exist.")
+            raise FileNotFoundError(
+                f"attempt to move {file=}, but file does not exist."
+            )
+
+        if not file.is_file():
+            warning("received a path to something other than a file.")
+            raise ValueError(
+                f"attempt to move {file=}, but path does not point to a file."
+            )
+        info(f"verified {file=} ok.")
+
+    dest_dir = get_or_mkdir(dest_dir)
+    for file in src_files:
+        file.rename(dest_dir / file.name)
+
+
 def tarball_files(
     src_files: Sequence[Path],
     dest_dir: Path,
@@ -37,7 +77,12 @@ def tarball_files(
     :param dest_fname: file name for the tarball (excluding the parent directories), without suffix.
     :param alg: compression algorithm to use (defaults to gzip)
     :param retain_structure: retain the directory structure above the compressed files (false by default)
-    :logger: the logger used for logging messages in the function
+    :param logger: the logger used for logging messages in the function
+
+    :raises ValueError: if path to something other than a file is given
+    :raises FileNotFoundError: if path doesnt exist
+
+    :returns: path to the archive
     """
     logger = logger or logging.getLogger(__file__)
     debug, info, warning = logger.debug, logger.info, logger.warning
