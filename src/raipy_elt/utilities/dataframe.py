@@ -85,3 +85,8 @@ def manual_parse(bad_file: Path, sep="|") -> pd.DataFrame:
         )
 
     return df
+
+
+def list_col_nonempty(df: pd.DataFrame, list_col: str) -> pd.Series:
+    """series of bool indicating if a column composed of lists is non empty"""
+    return df[list_col].apply(lambda el: False if not el else True)

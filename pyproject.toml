@@ -4,9 +4,7 @@ version = "0.0.2"
 description = ""
 authors = ["apostoli <79337131+apostolos-geyer@users.noreply.github.com>"]
 readme = "README.md"
-packages = [
-    { include = "raipy_elt", from = "src" },
-]
+packages = [{ include = "raipy_elt", from = "src" }]
 
 [tool.poetry.scripts]
 raipy-elt = "raipy_elt.__main__:main"
@@ -15,11 +13,12 @@ raw2bronze = "raipy_elt.__main__:raw_to_bronze"
 [tool.poetry.dependencies]
 python = "^3.11"
 attrs = "^23.2.0"
-pandas = {extras = ["performance"], version = "^2.2.2"}
+pandas = { extras = ["performance"], version = "^2.2.2" }
 duckdb = "^0.10.2"
 pyyaml = "^6.0.1"
 deltalake = "^0.17.2"
 click = "^8.1.7"
+pytest = "^8.3.2"
 
 
 [tool.poetry.group.dev.dependencies]

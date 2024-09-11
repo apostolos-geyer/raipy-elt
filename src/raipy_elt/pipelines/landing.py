@@ -21,11 +21,13 @@ from raipy_elt.utilities.dataframe import (
     enforce_datetime64us,
     manual_parse,
     unique_assessment_id,
+    list_col_nonempty,
 )
 from raipy_elt.utilities.delta import (
     DeltaTable,
     write_deltalake,
 )
+from raipy_elt.utilities.archiving import CompressAlg, move_files, tarball_files
 from raipy_elt.utilities.misc import flatten_dicts
 
 YAML_CONF = """\
@@ -337,10 +339,17 @@ _RawToBronze = Pipeline.define(
         "file_glob",
         "file_metadata_filters",
         "mode",
+        "archive_dir",
+        "archive_behaviour",
+        "archive_err_behaviour",
+        "archive_compress_alg",
     },
     file_glob=GLOB_ASSESSMENT,
     file_metadata_filters=lambda x: True,
     mode="append",
+    archive_behaviour=("tarball", "ingested"),
+    archive_err_behaviour=("move", "ingested-review"),
+    archive_compress_alg=CompressAlg.GZIP,
 )
 
 
@@ -355,6 +364,7 @@ def init(raw_dir: Path) -> None:
     Initialize the raw to bronze pipeline
     """
     _RawToBronze.logger.info("Initializing raw to bronze pipeline")
+    _RawToBronze.variables["TIMESTAMP"] = pd.Timestamp.now().strftime("%Y-%m-%d_%H-%M")
 
     _RawToBronze.variables["RECORD_NAME"] = (
         f"INGESTION_AT_{pd.Timestamp.now().strftime('%Y-%m-%d_%H-%M')}"
@@ -661,6 +671,110 @@ def save_ingestion_records(ingestion_records: pd.DataFrame, raw_dir: Path) -> No
         raw_dir / f'{_RawToBronze.variables["RECORD_NAME"]}.csv',
         index=False,
     )
+
+
+@_RawToBronze.stage(
+    use_params=[
+        ParamMapping(from_param="archive_behaviour", as_arg="behaviour"),
+        ParamMapping(from_param="archive_err_behaviour", as_arg="err_behaviour"),
+        ParamMapping(from_param="raw_dir", as_arg="raw_dir"),
+        ParamMapping(from_param="archive_dir", as_arg="archive_dir"),
+        ParamMapping(from_param="archive_compress_alg", as_arg="alg"),
+    ],
+    use_outputs=[
+        ResultMapping(
+            from_stage="ingest",
+            as_arg="ingestion_records",
+        )
+    ],
+)
+def archive_raws(
+    behaviour: (None | tuple[Literal["move"], str] | tuple[Literal["tarball"], str]),
+    err_behaviour: (
+        None
+        | Literal["include"]
+        | tuple[Literal["move"], str]
+        | tuple[Literal["tarball"], str]
+    ),
+    raw_dir: Path,
+    archive_dir: Path,
+    alg: CompressAlg,
+    ingestion_records: pd.DataFrame,
+) -> None:
+    """
+    archive raws cleans up the ingested raw data according to the behaviours provided. files that failed to ingest (were not written to the delta)
+    will not be moved.
+
+    :param behaviour: how files that ingested cleanly (no read errors or ingest errors) should be handled.
+
+        - if None, no files will be moved.
+        - if a tuple ("move", str), files will be moved to a directory under the archive_dir named by the second element of the tuple, concatenated
+            with the current date and time.
+        - if a tuple ("tarball", str), files will be moved to a tarball under the archive_dir named by the second element of the tuple concatenated
+            with the current date and time, and suffixed with .tar.{suffix according to compression algorithm, either xz, gz, or bz2}
+
+    :param err_behaviour: how files that ingested with errors (i.e were still written to delta, but had issues) should be handled.
+
+        - if None, no files will be moved.
+        - if "include", they will be included with the files without errors
+        - if a tuple ("move", str), handled the same as above
+        - if a tuple ("tarball", str), handled the same as above
+
+    :param raw_dir: the path to the raw directory (to prepend to the file names from the ingestion_records)
+    :param archive_dir: the path in which the archives should be placed
+    :param alg: the compression algorithm
+    :param ingestion_records: dataframe of ingestion records indicating errors and if the file was saved to delta, must have columns READ_ERRORS, INGEST_ERRORS, INGEST_SUCCESS
+    """
+    if behaviour is None:
+        return
+
+    successes = ingestion_records[ingestion_records["INGEST_SUCCESS"]]
+    reidxs, ieidxs = (
+        list_col_nonempty(successes, ecol) for ecol in ("READ_ERRORS", "INGEST_ERRORS")
+    )
+    erridxs = reidxs | ieidxs
+
+    include_errs = isinstance(err_behaviour, str) and (err_behaviour == "include")
+    if include_errs:
+        fs = [raw_dir / fname for fname in successes["FILE_NAME"]]
+        match behaviour:
+            case ("move", str() as to_dir):
+                move_files(
+                    fs,
+                    dest_dir=archive_dir
+                    / f'{to_dir}{_RawToBronze.variables["TIMESTAMP"]}',
+                    logger=LOGGER,
+                )
+            case ("tarball", str() as to_arc):
+                tarball_files(
+                    fs,
+                    dest_dir=archive_dir,
+                    dest_fname=f'{to_arc}{_RawToBronze.variables["TIMESTAMP"]}',
+                    cmprsn=alg,
+                    logger=LOGGER,
+                )
+    else:
+        noerr_fs = [raw_dir / fname for fname in successes[~erridxs]["FILE_NAME"]]
+        err_fs = [
+            raw_dir / fname for fname in successes[erridxs]["FILE_NAME"]
+        ]  # dont include
+        for behave, fs in ((behaviour, noerr_fs), (err_behaviour, err_fs)):
+            match behave:
+                case ("move", str() as to_dir):
+                    move_files(
+                        fs,
+                        dest_dir=archive_dir
+                        / f'{to_dir}{_RawToBronze.variables["TIMESTAMP"]}',
+                        logger=LOGGER,
+                    )
+                case ("tarball", str() as to_arc):
+                    tarball_files(
+                        fs,
+                        dest_dir=archive_dir,
+                        dest_fname=f'{to_arc}{_RawToBronze.variables["TIMESTAMP"]}',
+                        cmprsn=alg,
+                        logger=LOGGER,
+                    )
 
 
 @_RawToBronze.stage("cleanup")
