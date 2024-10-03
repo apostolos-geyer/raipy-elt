@@ -220,6 +220,19 @@ def _try_read(file_metadata: FileMetadata, raw_dir: Path) -> _TryReadResult:
                 data_augmented[col_name], format=pandas_kwds["date_format"][col_name]
             )
 
+        expect_object = [c for c, t in pandas_kwds["dtype"].items() if t == "object"]
+        n = len(data_augmented)
+        for col in expect_object:
+            nulls = int(data_augmented[col].isna().sum())
+            if nulls != 0:
+                msg = f"{col=} has {nulls=} out of {n=} entries missing. They will be filled with an empty string"
+                if nulls == n:
+                    LOGGER.warning(msg)
+                else:
+                    LOGGER.info(msg)
+
+            data_augmented[col] = data_augmented[col].fillna("")
+
     return _TryReadResult(
         data=data_augmented,
         read_metadata=ReadMetadata.from_data(data_augmented, errors),
@@ -689,7 +702,7 @@ def save_ingestion_records(ingestion_records: pd.DataFrame, raw_dir: Path) -> No
     ],
 )
 def archive_raws(
-    behaviour: (None | tuple[Literal["move"], str] | tuple[Literal["tarball"], str]),
+    behaviour: None | tuple[Literal["move"], str] | tuple[Literal["tarball"], str],
     err_behaviour: (
         None
         | Literal["include"]
